@@ -7,28 +7,38 @@ import ConfigParser
 import ow
 import time
 import paho.mqtt.client as mqtt
+import argparse
 
-#parser = argparse.ArgumentParser( formatter_class=argparse.RawDescriptionHelpFormatter,  
-#description='''reads temperature sensors from onewire-server and publishes the temperaturs to a mqtt-broker''')
-#parser.add_argument('config_file', metavar="<config_file>", help="file with configuration")
-## parser.add_argument("-v", "--verbose", help="increase log verbosity", action="store_true")
-#args = parser.parse_args()
+parser = argparse.ArgumentParser( formatter_class=argparse.RawDescriptionHelpFormatter,  
+description='''glues between one wire and mqtt stuff''')
+parser.add_argument('config_file', metavar="<config_file>", help="file with configuration")
+args = parser.parse_args()
 
 
 # read and parse config file
-#config = ConfigParser.RawConfigParser()
-#config.read(args.config_file)
+config = ConfigParser.RawConfigParser()
+config.read(args.config_file)
 # [mqtt]
-MQTT_HOST = 'localhost' #config.get("mqtt", "host")
-MQTT_PORT = '1883' #config.getint("mqtt", "port")
-STATUSTOPIC = 'ow2mqtt' #config.get("mqtt", "statustopic")
-#POLLINTERVAL = config.getint("mqtt", "pollinterval")
+MQTT_HOST = config.get("mqtt", "host")
+MQTT_PORT = config.getint("mqtt", "port")
+STATUSTOPIC = config.get("mqtt", "statustopic")
+POLLINTERVAL = config.getint("mqtt", "pollinterval")
 # [Onewire]
-#OW_HOST = config.get("onewire", "host")
-#OW_PORT = config.get("onewire", "port")
+OW_HOST = config.get("onewire", "host")
+OW_PORT = config.get("onewire", "port")
 # [log]
-LOGFILE = '/tmp/ow2mqtt.log'	#config.get("log", "logfile")
-VERBOSE = True #config.get("log", "verbose")
+LOGFILE = config.get("log", "logfile")
+VERBOSE = config.get("log", "verbose")
+# [sensors]
+section_name = "sensors"
+sensors = {}
+for name, value in config.items(section_name):
+	sensors[name] = value
+# [switch]
+section_name = "switches"
+switches = {}
+for name, value in config.items(section_name):
+	switches[name] = value
 
 APPNAME = "ow2mqtt"
 
@@ -61,7 +71,11 @@ def mqtt_on_connect(client, userdata, flags, return_code):
 		logging.info("Connected to %s:%s", MQTT_HOST, MQTT_PORT)
 		# set Lastwill 
         	mqttc.publish(STATUSTOPIC, "connected", retain=True)
-        	# process_connection() TODO!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1
+	
+		#Subscribing to topics
+		for owid, owtopic in sensors.items():
+			mqttc.subscribe(owtopic)
+
 	elif return_code == 1:
 		logging.info("Connection refused - unacceptable protocol version")
 		cleanup()
@@ -112,15 +126,18 @@ def cleanup(signum, frame):
 
 # Main Loop
 def main_loop():
-	#logging.debug(("onewire server : %s") % (OW_HOST))    
-	#logging.debug(("  port         : %s") % (str(OW_PORT)))
+	logging.debug(("onewire server : %s") % (OW_HOST))    
+	logging.debug(("  port         : %s") % (str(OW_PORT)))
 	logging.debug(("MQTT broker    : %s") % (MQTT_HOST))
 	logging.debug(("  port         : %s") % (str(MQTT_PORT)))
-	#logging.debug(("pollinterval   : %s") % (str(POLLINTERVAL)))
-	#logging.debug(("statustopic    : %s") % (str(STATUSTOPIC)))
-	#logging.debug(("sensors        : %s") % (len(SENSORS)))
-	#for owid, owtopic in SENSORS.items():
-	#	logging.debug(("  %s : %s") % (owid, owtopic))
+	logging.debug(("pollinterval   : %s") % (str(POLLINTERVAL)))
+	logging.debug(("statustopic    : %s") % (str(STATUSTOPIC)))
+	logging.debug(("sensors        : %s") % (len(sensors)))
+	for owid, owtopic in sensors.items():
+		logging.debug(("  %s : %s") % (owid, owtopic))
+	logging.debug(("switches       : %s") % (len(switches)))
+	for owid, owtopic in switches.items():
+		logging.debug(("  %s : %s") % (owid, owtopic))
     
 	# Connect to the broker and enter the main loop
 	result = mqttc.connect(MQTT_HOST, MQTT_PORT, 60)
@@ -137,32 +154,44 @@ def main_loop():
 	mqttc.on_log = mqtt_on_log
 
 	# Connect to one wire server
-	#ow.init(("%s:%s") % (OW_HOST, str(OW_PORT))) 
-	#ow.error_level(ow.error_level.fatal)
-	#ow.error_print(ow.error_print.stderr)
+	ow.init(("%s:%s") % (OW_HOST, str(OW_PORT))) 
+	ow.error_level(ow.error_level.fatal)
+	ow.error_print(ow.error_print.stderr)
+
+	#test... try catch blabla...
+#	for owid, owtopic in switches.items():
+#		sens = ow.Sensor(owid)
+#		sens.useCache(False)
+#		#0 -> relai on
+#		sens.PIO_A = '0'
+#		time.sleep(0.2)
+#		sens.PIO_A = '1'
+#	while True:
+#		for owid, owtopic in switches.items():
+#			sw = ow.Sensor(owid)
+#			sw.useCache(False)
+#			#0 -> turned on
+#			print(sw.sensed_B)
+#			time.sleep(1)
 
 	mqttc.loop_start()
 	while True:
 		# simultaneous temperature conversion
-		#ow._put("/simultaneous/temperature","1")
+		ow._put("/simultaneous/temperature","1")
 
 		item = 0        
 		# iterate over all sensors
-		#for owid, owtopic in SENSORS.items():
-		#	logging.debug(("Querying %s : %s") % (owid, owtopic))
-		#	try:             
-		#		sensor = ow.Sensor(owid)                 
-		#		owtemp = sensor.temperature            
-		#		logging.debug(("Sensor %s : %s") % (owid, owtemp))
-		#		MQTTC.publish(owtopic, owtemp)
-                
-		#	except ow.exUnknownSensor:
-		#		logging.info("Threw an unknown sensor exception for device %s - %s. Continuing", owid, owname)
-		#		continue
+		for owid, owtopic in sensors.items():
+			logging.debug(("Querying %s : %s") % (owid, owtopic))
+			try:             
+				sensor = ow.Sensor(owid)                 
+				owtemp = sensor.temperature            
+				logging.debug(("Sensor %s : %s") % (owid, owtemp))
+				mqttc.publish(owtopic, owtemp)
+			except ow.exUnknownSensor:
+				logging.info("Threw an unknown sensor exception for device %s - %s. Continuing", owid, owtopic)
         	    
-		#	time.sleep(float(POLLINTERVAL) / len(SENSORS))
-
-		time.sleep(10)
+			time.sleep(float(POLLINTERVAL) / len(sensors))
 
 
 # Use the signal module to handle signals
