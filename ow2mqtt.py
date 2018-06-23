@@ -68,7 +68,7 @@ mqttc = mqtt.Client(MQTT_CLIENT_ID)
 # 5: Connection refused - not authorised
 # 6-255: Currently unused.
 def mqtt_on_connect(client, userdata, flags, return_code):
-	logging.debug("mqtt_on_connect return_code: " + str(return_code))
+	#logging.debug("mqtt_on_connect return_code: " + str(return_code))
 	if return_code == 0:
 		logging.info("Connected to %s:%s", MQTT_HOST, MQTT_PORT)
 		# set Lastwill 
@@ -103,19 +103,24 @@ def mqtt_on_disconnect(mosq, obj, return_code):
 		logging.info("Clean disconnection")
 	else:
 		logging.info("Unexpected disconnection. Reconnecting in 5 seconds")
-		logging.debug("return_code: %s", return_code)
+		#logging.debug("return_code: %s", return_code)
 		time.sleep(5)
 
-def mqtt_on_log(mosq, obj, level, string):
-	if VERBOSE:    
-		logging.debug(string)
+#def mqtt_on_log(mosq, obj, level, string):
+#	if VERBOSE:    
+#		logging.debug(string)
 
-def mqtt_on_publish(mosq, obj, mid):
-	logging.debug("MID " + str(mid) + " published.")
+#def mqtt_on_publish(mosq, obj, mid):
+#	logging.debug("MID " + str(mid) + " published.")
 
 def mqtt_on_message(client, userdata, msg):
-	print(msg.topic + " " + str(msg.payload))
-
+	#set switch?
+	for owid, owtopic in switches.items():
+		if owtopic+'/set' not in msg.topic:
+			continue
+		logging.debug(("Querying %s -> %s") % (owtopic, msg.payload))
+		set_switch_state(owid, owtopic, msg.payload in ['True', 'true', '1', 't', 'y', 'yes', 'Yes', 'Y'])
+		
 # clean disconnect on SIGTERM or SIGINT. 
 def cleanup(signum, frame):
 	logging.info("Disconnecting from broker")
@@ -125,6 +130,32 @@ def cleanup(signum, frame):
 	mqttc.loop_stop()
 	logging.info("Exiting on signal %d", signum)
 	sys.exit(signum)
+
+# turn on/off power
+def set_switch_state(owid, owtopic, new_state):
+	# test for current state
+	sw = ow.Sensor(owid)
+	sw.useCache(False)
+	sw_state = sw.sensed_B in '0'	#0 -> turned on
+	
+	# already in the desired state
+	if sw_state == new_state:
+		# retransmitt so that everybody updates its state
+		mqttc.publish(owtopic, str(new_state), retain=True)
+		return 
+	
+	# change state
+	logging.debug(("Switch %s -> %s") % (owid, str(new_state)))
+	#1 -> relai active
+	sw.PIO_A = '1'
+	time.sleep(0.2)
+	sw.PIO_A = '0'
+	time.sleep(0.02)
+	sw.PIO_A = '0'		#ensure really off ;)
+
+	# retransmitt so that everybody updates its state
+	mqttc.publish(owtopic, str(new_state), retain=True)
+
 
 # Main Loop
 def main_loop():
@@ -152,40 +183,26 @@ def main_loop():
 	mqttc.on_connect = mqtt_on_connect
 	mqttc.on_message = mqtt_on_message
 	mqttc.on_disconnect = mqtt_on_disconnect
-	mqttc.on_publish = mqtt_on_publish
-	mqttc.on_log = mqtt_on_log
+	#mqttc.on_publish = mqtt_on_publish
+	#mqttc.on_log = mqtt_on_log
 
 	# Connect to one wire server
 	ow.init(("%s:%s") % (OW_HOST, str(OW_PORT))) 
 	ow.error_level(ow.error_level.fatal)
 	ow.error_print(ow.error_print.stderr)
 
-	#test... try catch blabla...
-#	for owid, owtopic in switches.items():
-#		sens = ow.Sensor(owid)
-#		sens.useCache(False)
-#		#0 -> relai on
-#		sens.PIO_A = '0'
-#		time.sleep(0.2)
-#		sens.PIO_A = '1'
-#	while True:
-#		for owid, owtopic in switches.items():
-#			sw = ow.Sensor(owid)
-#			sw.useCache(False)
-#			#0 -> turned on
-#			print(sw.sensed_B)
-#			time.sleep(1)
-
 	mqttc.loop_start()
+	time.sleep(1)
+
 	while True:
 		# iterate over all switches
 		for owid, owtopic in switches.items():
-			logging.debug(("Querying %s : %s") % (owid, owtopic))
+			#logging.debug(("Querying %s : %s") % (owid, owtopic))
 			try:
 				switch = ow.Sensor(owid)
-				owstate = 'True' if not switch.sensed_B else 'False'
-				logging.debug(("Switch %s : %s") % (owid, owstate))
-				mqttc.publish(owtopic, owstate)
+				owstate = switch.sensed_B in '0'
+				logging.debug(("Switch %s : %s") % (owid, str(owstate)))
+				mqttc.publish(owtopic, str(owstate), retain=True)
 			except ow.exUnknownSensor:
 				logging.info("Switch exception for device %s - %s.", owid, owtopic)
 			
@@ -193,14 +210,18 @@ def main_loop():
 
 		# iterate over all sensors
                 # simultaneous temperature conversion
-                ow._put("/simultaneous/temperature","1")
+                #ow._put("/simultaneous/temperature", "1")
 		for owid, owtopic in sensors.items():
-			logging.debug(("Querying %s : %s") % (owid, owtopic))
+			#logging.debug(("Querying %s : %s") % (owid, owtopic))
 			try:             
-				sensor = ow.Sensor(owid)                 
-				owtemp = sensor.temperature            
-				logging.debug(("Sensor %s : %s") % (owid, owtemp))
-				mqttc.publish(owtopic, owtemp)
+				sensor = ow.Sensor(owid)
+				sensor.useCache(True)
+				owtemp = sensor.temperature 
+				if float(owtemp) < 84.9:           
+					logging.debug(("Sensor %s : %s") % (owid, owtemp))
+					mqttc.publish(owtopic, owtemp, retain=True)
+				else:
+					logging.debug(("Sensor %s : ERR") % (owid))
 			except ow.exUnknownSensor:
 				logging.info("Sensor exception for device %s - %s.", owid, owtopic)
         	    
