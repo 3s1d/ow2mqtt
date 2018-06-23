@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import os
 import sys
 import signal
 import logging
@@ -56,7 +57,8 @@ else:
 	logging.debug("DEBUG MODE")
 
 # MQTT
-mqttc = mqtt.Client()
+MQTT_CLIENT_ID = APPNAME + "_%d" % os.getpid()
+mqttc = mqtt.Client(MQTT_CLIENT_ID)
 
 # 0: Connection successful 
 # 1: Connection refused - incorrect protocol version
@@ -73,8 +75,8 @@ def mqtt_on_connect(client, userdata, flags, return_code):
         	mqttc.publish(STATUSTOPIC, "connected", retain=True)
 	
 		#Subscribing to topics
-		for owid, owtopic in sensors.items():
-			mqttc.subscribe(owtopic)
+		for owid, owtopic in switches.items():
+			mqttc.subscribe(owtopic + '/set')
 
 	elif return_code == 1:
 		logging.info("Connection refused - unacceptable protocol version")
@@ -176,11 +178,22 @@ def main_loop():
 
 	mqttc.loop_start()
 	while True:
-		# simultaneous temperature conversion
-		ow._put("/simultaneous/temperature","1")
+		# iterate over all switches
+		for owid, owtopic in switches.items():
+			logging.debug(("Querying %s : %s") % (owid, owtopic))
+			try:
+				switch = ow.Sensor(owid)
+				owstate = 'True' if not switch.sensed_B else 'False'
+				logging.debug(("Switch %s : %s") % (owid, owstate))
+				mqttc.publish(owtopic, owstate)
+			except ow.exUnknownSensor:
+				logging.info("Switch exception for device %s - %s.", owid, owtopic)
+			
+			time.sleep(float(POLLINTERVAL) / (len(sensors) + len(switches)))
 
-		item = 0        
 		# iterate over all sensors
+                # simultaneous temperature conversion
+                ow._put("/simultaneous/temperature","1")
 		for owid, owtopic in sensors.items():
 			logging.debug(("Querying %s : %s") % (owid, owtopic))
 			try:             
@@ -189,9 +202,9 @@ def main_loop():
 				logging.debug(("Sensor %s : %s") % (owid, owtemp))
 				mqttc.publish(owtopic, owtemp)
 			except ow.exUnknownSensor:
-				logging.info("Threw an unknown sensor exception for device %s - %s. Continuing", owid, owtopic)
+				logging.info("Sensor exception for device %s - %s.", owid, owtopic)
         	    
-			time.sleep(float(POLLINTERVAL) / len(sensors))
+			time.sleep(float(POLLINTERVAL) / (len(sensors) + len(switches)))
 
 
 # Use the signal module to handle signals
