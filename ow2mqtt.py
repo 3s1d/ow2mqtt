@@ -60,9 +60,6 @@ else:
 MQTT_CLIENT_ID = APPNAME + "_%d" % os.getpid()
 mqttc = mqtt.Client(MQTT_CLIENT_ID)
 
-# One Wire
-#owfs = pyowfs(("%s:%s") % (OW_HOST, str(OW_PORT)))
-
 # 0: Connection successful 
 # 1: Connection refused - incorrect protocol version
 # 2: Connection refused - invalid client identifier
@@ -131,6 +128,7 @@ def cleanup(signum, frame):
 	mqttc.publish(STATUSTOPIC, "0 - DISCONNECT", retain=True)
 	mqttc.disconnect()
 	mqttc.loop_stop()
+	ow.finish()
 	logging.info("Exiting on signal %d", signum)
 	sys.exit(signum)
 
