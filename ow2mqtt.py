@@ -60,6 +60,9 @@ else:
 MQTT_CLIENT_ID = APPNAME + "_%d" % os.getpid()
 mqttc = mqtt.Client(MQTT_CLIENT_ID)
 
+# One Wire
+#owfs = pyowfs(("%s:%s") % (OW_HOST, str(OW_PORT)))
+
 # 0: Connection successful 
 # 1: Connection refused - incorrect protocol version
 # 2: Connection refused - invalid client identifier
@@ -181,7 +184,7 @@ def main_loop():
 
 	# Define callbacks
 	mqttc.on_connect = mqtt_on_connect
-	mqttc.on_message = mqtt_on_message
+#	mqttc.on_message = mqtt_on_message
 	mqttc.on_disconnect = mqtt_on_disconnect
 	#mqttc.on_publish = mqtt_on_publish
 	#mqttc.on_log = mqtt_on_log
@@ -208,6 +211,10 @@ def main_loop():
 			
 			time.sleep(float(POLLINTERVAL) / (len(sensors) + len(switches)))
 
+		# iterate over all lamps
+		lamp = ow.owfs_get('/1D.00002324DA00/pages/page.0')
+		print lamp
+	
 		# iterate over all sensors
                 # simultaneous temperature conversion
                 #ow._put("/simultaneous/temperature", "1")
