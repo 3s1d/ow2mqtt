@@ -7358,7 +7358,6 @@ Standard adjustable voltage regulator but in SMD form. Spark Fun Electronics SKU
 <sheets>
 <sheet>
 <plain>
-<text x="50.8" y="154.94" size="1.778" layer="91">org: 2k2 +3k3</text>
 <wire x1="114.3" y1="170.18" x2="114.3" y2="17.78" width="0.1524" layer="94" style="longdash"/>
 </plain>
 <instances>
