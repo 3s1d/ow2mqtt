@@ -35,11 +35,16 @@ section_name = "sensors"
 sensors = {}
 for name, value in config.items(section_name):
 	sensors[name] = value
-# [switch]
+# [switches]
 section_name = "switches"
 switches = {}
 for name, value in config.items(section_name):
 	switches[name] = value
+# [lamps]
+section_name = "lamps"
+lamps = {}
+for name, value in config.items(section_name):
+	lamps[name] = value
 
 APPNAME = "ow2mqtt"
 
@@ -182,7 +187,7 @@ def main_loop():
 
 	# Define callbacks
 	mqttc.on_connect = mqtt_on_connect
-#	mqttc.on_message = mqtt_on_message
+	mqttc.on_message = mqtt_on_message
 	mqttc.on_disconnect = mqtt_on_disconnect
 	#mqttc.on_publish = mqtt_on_publish
 	#mqttc.on_log = mqtt_on_log
@@ -210,8 +215,17 @@ def main_loop():
 			time.sleep(float(POLLINTERVAL) / (len(sensors) + len(switches)))
 
 		# iterate over all lamps
-		lamp = ow.owfs_get('/1D.00002324DA00/pages/page.0')
-		print lamp
+		for owid, owtopic in lamps.items():
+			try:
+				owlamp = ow.owfs_get(owid + '/pages/page.0')
+				logging.debug(("Lamp %s : %s") % (owid, owlamp))
+				i = 0
+				for val in owlamp.split(','):
+					mqttc.publish(('%s/%d') % (owtopic, i), val, retain=True)
+					i += 1
+			except ow.exUnknownSensor:
+				logging.info("Lamp exception for device %s - %s.", owid, owtopic)
+			time.sleep(float(POLLINTERVAL) / (len(sensors) + len(switches)))
 	
 		# iterate over all sensors
                 # simultaneous temperature conversion
