@@ -22,8 +22,37 @@ const uint32_t WRITE_STARTUP_COUNTER = 1;
 const uint32_t WRITE_PWM_PAGE = 12;
 const uint32_t WRITE_STARTUP_PAGE = 12+1;
 
-uint16_t duration = 0;                  //time in ms to reach color
+uint16_t duration = 1000;               //time in ms to reach color
 uint8_t channel[5] = {0, 0, 0, 0, 0};   //Red (6bit), Green (6bit), Blue (6bit), Cool White (8bit), Warm White (8bit)
+
+void eval_ow_cmd(char *cmd)
+{
+    if(cmd == NULL || strlen(cmd) == 0)
+        return;
+
+    char *p = strtok(cmd, ",");
+    do
+    {
+        //Debug
+        Serial.println(p);
+
+        if(strlen(p) > 2 && p[1] == '=')
+        {
+            int value = atoi(&p[2]);
+            if(p[0] >= '0' && p[0] <= '4' )       //channel setting
+            {
+                //todo current and desired array...
+                channel[p[0] - '0'] = value;
+            }
+            else if(p[0] == 't')                //time setting
+            {
+                duration = value;
+            }
+          
+        }
+    }
+    while((p=strtok(NULL, ",")) != NULL);
+}
 
 void setup()
 {
@@ -36,6 +65,11 @@ void setup()
 
     writes_pwm =  ds2423.getCounter(WRITE_PWM_COUNTER);
     writes_startup = ds2423.getCounter(WRITE_STARTUP_COUNTER);
+
+    eval_ow_cmd("");
+    eval_ow_cmd("1=34");
+    eval_ow_cmd("2=34,t=3");
+    
 }
 
 void loop()
@@ -55,21 +89,7 @@ void loop()
         uint8_t mem_read[32];
         const uint16_t pos = WRITE_PWM_PAGE * 32;
         ds2423.readMemory(mem_read, sizeof(mem_read), pos);
-
-        Serial.println("Received");
-        Serial.print(mem_read[0], HEX);
-        Serial.print(",");
-        Serial.print(mem_read[1], HEX);
-        Serial.print(",");
-        Serial.print(mem_read[2], HEX);
-        Serial.print(",");
-        Serial.print(mem_read[3], HEX);
-        Serial.print(",");
-        Serial.print(mem_read[4], HEX);
-        Serial.print(",");
-        Serial.print(mem_read[5], HEX);
-        Serial.print(",");
-        Serial.println(mem_read[6], HEX);        
+        eval_ow_cmd(mem_read);
     }
 
     /* prepare for read */
