@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
 
 import os
 import sys
@@ -141,9 +142,9 @@ def cleanup(signum, frame):
 def set_switch_state(owid, owtopic, new_state):
 	# test for current state
 	sw = ow.Sensor(owid)
-	sw.useCache(False)
+	#sw.useCache(False)			#todo blocking???
 	sw_state = sw.sensed_B in '0'	#0 -> turned on
-	
+	logging.debug(("...%r %r") % (sw_state, new_state))
 	# already in the desired state
 	if sw_state == new_state:
 		# retransmitt so that everybody updates its state
@@ -234,7 +235,7 @@ def main_loop():
 			#logging.debug(("Querying %s : %s") % (owid, owtopic))
 			try:             
 				sensor = ow.Sensor(owid)
-				sensor.useCache(True)
+				#sensor.useCache(True)
 				owtemp = sensor.temperature 
 				if float(owtemp) < 84.9:           
 					logging.debug(("Sensor %s : %s") % (owid, owtemp))
