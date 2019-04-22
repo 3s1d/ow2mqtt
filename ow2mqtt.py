@@ -58,9 +58,9 @@ else:
 
 logging.info("Starting " + APPNAME)
 if VERBOSE:
-	logging.info("INFO MODE")
-else:
 	logging.debug("DEBUG MODE")
+else:
+	logging.info("INFO MODE")
 
 # MQTT
 MQTT_CLIENT_ID = APPNAME + "_%d" % os.getpid()
@@ -77,8 +77,7 @@ def mqtt_on_connect(client, userdata, flags, return_code):
 	#logging.debug("mqtt_on_connect return_code: " + str(return_code))
 	if return_code == 0:
 		logging.info("Connected to %s:%s", MQTT_HOST, MQTT_PORT)
-		# set Lastwill 
-        	mqttc.publish(STATUSTOPIC, "connected", retain=True)
+		mqttc.publish(STATUSTOPIC, "CONNECTED", retain=True)
 	
 		#Subscribing to topics
 		for owid, owtopic in switches.items():
@@ -131,7 +130,7 @@ def mqtt_on_message(client, userdata, msg):
 def cleanup(signum, frame):
 	logging.info("Disconnecting from broker")
 	# Publish a retained message to state that this client is offline
-	mqttc.publish(STATUSTOPIC, "0 - DISCONNECT", retain=True)
+	mqttc.publish(STATUSTOPIC, "DISCONNECTED", retain=True)
 	mqttc.disconnect()
 	mqttc.loop_stop()
 	ow.finish()
@@ -148,7 +147,7 @@ def set_switch_state(owid, owtopic, new_state):
 	# already in the desired state
 	if sw_state == new_state:
 		# retransmitt so that everybody updates its state
-		mqttc.publish(owtopic, str(new_state), retain=True)
+		mqttc.publish(owtopic, str(new_state), retain=False)
 		return 
 	
 	# change state
@@ -161,7 +160,7 @@ def set_switch_state(owid, owtopic, new_state):
 	sw.PIO_A = '0'		#ensure really off ;)
 
 	# retransmitt so that everybody updates its state
-	mqttc.publish(owtopic, str(new_state), retain=True)
+	mqttc.publish(owtopic, str(new_state), retain=False)
 
 
 # Main Loop
@@ -209,7 +208,7 @@ def main_loop():
 				switch = ow.Sensor(owid)
 				owstate = switch.sensed_B in '0'
 				logging.debug(("Switch %s : %s") % (owid, str(owstate)))
-				mqttc.publish(owtopic, str(owstate), retain=True)
+				mqttc.publish(owtopic, str(owstate), retain=False)
 			except ow.exUnknownSensor:
 				logging.info("Switch exception for device %s - %s.", owid, owtopic)
 			
@@ -222,7 +221,7 @@ def main_loop():
 				logging.debug(("Lamp %s : %s") % (owid, owlamp))
 				i = 0
 				for val in owlamp.split(','):
-					mqttc.publish(('%s/%d') % (owtopic, i), val, retain=True)
+					mqttc.publish(('%s/%d') % (owtopic, i), val, retain=False)
 					i += 1
 			except ow.exUnknownSensor:
 				logging.info("Lamp exception for device %s - %s.", owid, owtopic)
@@ -239,7 +238,7 @@ def main_loop():
 				owtemp = sensor.temperature 
 				if float(owtemp) < 84.9:           
 					logging.debug(("Sensor %s : %s") % (owid, owtemp))
-					mqttc.publish(owtopic, owtemp, retain=True)
+					mqttc.publish(owtopic, owtemp, retain=False)
 				else:
 					logging.debug(("Sensor %s : ERR") % (owid))
 			except ow.exUnknownSensor:
