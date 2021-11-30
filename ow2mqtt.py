@@ -5,8 +5,8 @@ import os
 import sys
 import signal
 import logging
-import ConfigParser
-import ow
+import configparser
+import onewire
 import time
 import paho.mqtt.client as mqtt
 import argparse
@@ -18,7 +18,7 @@ args = parser.parse_args()
 
 
 # read and parse config file
-config = ConfigParser.RawConfigParser()
+config = configparser.RawConfigParser()
 config.read(args.config_file)
 # [mqtt]
 MQTT_HOST = config.get("mqtt", "host")
@@ -48,6 +48,8 @@ for name, value in config.items(section_name):
 	lamps[name] = value
 
 APPNAME = "ow2mqtt"
+
+ow = onewire.Onewire(("%s:%s") % (OW_HOST, str(OW_PORT))) 
 
 # init logging 
 LOGFORMAT = '%(asctime)-15s %(message)s'
@@ -193,9 +195,9 @@ def main_loop():
 	#mqttc.on_log = mqtt_on_log
 
 	# Connect to one wire server
-	ow.init(("%s:%s") % (OW_HOST, str(OW_PORT))) 
-	ow.error_level(ow.error_level.fatal)
-	ow.error_print(ow.error_print.stderr)
+	#ow.init(("%s:%s") % (OW_HOST, str(OW_PORT))) 
+	#ow.error_level(ow.error_level.fatal)
+	#ow.error_print(ow.error_print.stderr)
 
 	mqttc.loop_start()
 	time.sleep(1)
@@ -209,7 +211,7 @@ def main_loop():
 				owstate = switch.sensed_B in '0'
 				logging.debug(("Switch %s : %s") % (owid, str(owstate)))
 				mqttc.publish(owtopic, str(owstate), retain=False)
-			except ow.exUnknownSensor:
+			except onewire.OnewireException:
 				logging.info("Switch exception for device %s - %s.", owid, owtopic)
 			
 			time.sleep(float(POLLINTERVAL) / (len(sensors) + len(switches)))
@@ -223,7 +225,7 @@ def main_loop():
 				for val in owlamp.split(','):
 					mqttc.publish(('%s/%d') % (owtopic, i), val, retain=False)
 					i += 1
-			except ow.exUnknownSensor:
+			except onewire.OnewireException:
 				logging.info("Lamp exception for device %s - %s.", owid, owtopic)
 			time.sleep(float(POLLINTERVAL) / (len(sensors) + len(switches)))
 	
@@ -233,7 +235,7 @@ def main_loop():
 		for owid, owtopic in sensors.items():
 			#logging.debug(("Querying %s : %s") % (owid, owtopic))
 			try:             
-				sensor = ow.Sensor(owid)
+				sensor = ow.sensor(owid)
 				#sensor.useCache(True)
 				owtemp = sensor.temperature 
 				if float(owtemp) < 84.9:           
@@ -241,7 +243,7 @@ def main_loop():
 					mqttc.publish(owtopic, owtemp, retain=False)
 				else:
 					logging.debug(("Sensor %s : ERR") % (owid))
-			except ow.exUnknownSensor:
+			except onewire.OnewireException:
 				logging.info("Sensor exception for device %s - %s.", owid, owtopic)
         	    
 			time.sleep(float(POLLINTERVAL) / (len(sensors) + len(switches)))
