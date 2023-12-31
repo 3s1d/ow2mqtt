@@ -177,7 +177,9 @@ def main_loop():
 	logging.debug(("switches       : %s") % (len(switches)))
 	for owid, owtopic in switches.items():
 		logging.debug(("  %s : %s") % (owid, owtopic))
-    
+   
+        time.sleep(10)
+
 	# Connect to the broker and enter the main loop
 	result = mqttc.connect(MQTT_HOST, MQTT_PORT, 60)
 	while result != 0:
@@ -206,6 +208,7 @@ def main_loop():
 			#logging.debug(("Querying %s : %s") % (owid, owtopic))
 			try:
 				switch = ow.Sensor(owid)
+                                switch.PIO_B = '0'
 				owstate = switch.sensed_B in '0'
 				logging.debug(("Switch %s : %s") % (owid, str(owstate)))
 				mqttc.publish(owtopic, str(owstate), retain=False)
