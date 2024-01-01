@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
+# vim: tabstop=8 expandtab shiftwidth=8 softtabstop=8
 
 import os
 import sys
@@ -16,7 +16,7 @@ parser = argparse.ArgumentParser( formatter_class=argparse.RawDescriptionHelpFor
 description='''glues between one wire and mqtt stuff''')
 parser.add_argument('config_file', metavar="<config_file>", help="file with configuration")
 args = parser.parse_args()
-semaphore = threading.Semaphore(1)
+semaphore = threading.Lock()
 
 # read and parse config file
 config = configparser.RawConfigParser()
@@ -142,20 +142,25 @@ def cleanup(signum, frame):
 
 # turn on/off power
 def set_switch_state(owid, owtopic, new_state):
-        print('pre')
-        with semaphore:
-                print('post')
+        semaphore_acquired = False
+        try:
+                semaphore.acquire()
+                semaphore_acquired = True
                 # test for current state
                 sw = ow.Sensor(owid)
                 #sw.useCache(False)                     #todo blocking???
                 sw_state = sw.sensed_B in '0'   #0 -> turned on
                 logging.debug(("...%r %r") % (sw_state, new_state))
+
                 # already in the desired state
                 if sw_state == new_state:
+                        semaphore.release()
+                        semaphore_acquired = False
+
                         # retransmitt so that everybody updates its state
                         mqttc.publish(owtopic, str(new_state), retain=False)
                         return 
-        
+
                 # change state
                 logging.debug(("Switch %s -> %s") % (owid, str(new_state)))
                 #1 -> relai active
@@ -164,10 +169,17 @@ def set_switch_state(owid, owtopic, new_state):
                 sw.PIO_A = '0'
                 time.sleep(0.1)
                 sw.PIO_A = '0'          #ensure really off ;)
+                semaphore.release()
+                semaphore_acquired = False
 
                 # retransmitt so that everybody updates its state
                 mqttc.publish(owtopic, str(new_state), retain=False)
-
+        except ow.exUnknownSensor: #onewire.OnewireException:
+                logging.info("Set Switch State exception for device %s - %s.", owid, owtopic)
+        finally:
+                # Release semaphore only if it has been acquired
+                if semaphore_acquired:
+                        semaphore.release()
 
 # Main Loop
 def main_loop():
@@ -211,31 +223,50 @@ def main_loop():
         while True:
                 # iterate over all switches
                 for owid, owtopic in switches.items():
-                        with semaphore:
-                                #logging.debug(("Querying %s : %s") % (owid, owtopic))
-                                try:
-                                        switch = ow.Sensor(owid)
-                                        switch.PIO_B = '0'
-                                        owstate = switch.sensed_B in '0'
-                                        logging.debug(("Switch %s : %s") % (owid, str(owstate)))
-                                        mqttc.publish(owtopic, str(owstate), retain=False)
-                                except ow.exUnknownSensor: #onewire.OnewireException:
-                                        logging.info("Switch exception for device %s - %s.", owid, owtopic)
-                        
+                        #logging.debug(("Querying %s : %s") % (owid, owtopic))
+                        semaphore_acquired = False
+                        try:
+                                semaphore.acquire()
+                                semaphore_acquired = True
+                                switch = ow.Sensor(owid)
+                                switch.PIO_B = '0'
+                                owstate = switch.sensed_B in '0'
+                                semaphore.release()
+                                semaphore_acquired = False
+
+                                #note: semaphore needs to be release prio to mqttc call!!!!
+                                logging.debug(("Switch %s : %s") % (owid, str(owstate)))
+                                mqttc.publish(owtopic, str(owstate), retain=False)
+                        except ow.exUnknownSensor: #onewire.OnewireException:
+                                logging.info("Switch exception for device %s - %s.", owid, owtopic)
+                        finally:
+                                # Release semaphore only if it has been acquired
+                                if semaphore_acquired:
+                                        semaphore.release()
+
                         time.sleep(float(POLLINTERVAL) / (len(sensors) + len(switches)))
 
                 # iterate over all lamps
                 for owid, owtopic in lamps.items():
-                        with semaphore:
-                                try:
-                                        owlamp = ow.owfs_get(owid + '/pages/page.0')
-                                        logging.debug(("Lamp %s : %s") % (owid, owlamp))
-                                        i = 0
-                                        for val in owlamp.split(','):
-                                                mqttc.publish(('%s/%d') % (owtopic, i), val, retain=False)
-                                                i += 1
-                                except ow.exUnknownSensor: #onewire.OnewireException:
-                                        logging.info("Lamp exception for device %s - %s.", owid, owtopic)
+                        semaphore_acquired = False
+                        try:
+                                semaphore.acquire()
+                                semaphore_acquired = True
+                                owlamp = ow.owfs_get(owid + '/pages/page.0')
+                                semaphore.release()
+                                semaphore_acquired = False
+
+                                logging.debug(("Lamp %s : %s") % (owid, owlamp))
+                                i = 0
+                                for val in owlamp.split(','):
+                                        mqttc.publish(('%s/%d') % (owtopic, i), val, retain=False)
+                                        i += 1
+                        except ow.exUnknownSensor: #onewire.OnewireException:
+                                logging.info("Lamp exception for device %s - %s.", owid, owtopic)
+                        finally:
+                                # Release semaphore only if it has been acquired
+                                if semaphore_acquired:
+                                        semaphore.release()
 
                         time.sleep(float(POLLINTERVAL) / (len(sensors) + len(switches)))
         
@@ -243,20 +274,29 @@ def main_loop():
                 # simultaneous temperature conversion
                 #ow._put("/simultaneous/temperature", "1")
                 for owid, owtopic in sensors.items():
-                        with semaphore:
-                                #logging.debug(("Querying %s : %s") % (owid, owtopic))
-                                try:             
-                                        sensor = ow.Sensor(owid)
-                                        #sensor.useCache(True)
-                                        owtemp = sensor.temperature 
-                                        if float(owtemp) < 84.9:           
-                                                logging.debug(("Sensor %s : %s") % (owid, owtemp))
-                                                mqttc.publish(owtopic, owtemp, retain=False)
-                                        else:
-                                                logging.debug(("Sensor %s : ERR") % (owid))
-                                except ow.exUnknownSensor: #onewire.OnewireException:
-                                        logging.info("Sensor exception for device %s - %s.", owid, owtopic)
-                    
+                        #logging.debug(("Querying %s : %s") % (owid, owtopic))
+                        semaphore_acquired = False
+                        try:             
+                                semaphore.acquire()
+                                semaphore_acquired = True
+                                sensor = ow.Sensor(owid)
+                                #sensor.useCache(True)
+                                owtemp = sensor.temperature 
+                                semaphore.release()
+                                semaphore_acquired = False
+
+                                if float(owtemp) < 84.9:           
+                                        logging.debug(("Sensor %s : %s") % (owid, owtemp))
+                                        mqttc.publish(owtopic, owtemp, retain=False)
+                                else:
+                                        logging.debug(("Sensor %s : ERR") % (owid))
+                        except ow.exUnknownSensor: #onewire.OnewireException:
+                                logging.info("Sensor exception for device %s - %s.", owid, owtopic)
+                        finally:
+                                # Release semaphore only if it has been acquired
+                                if semaphore_acquired:
+                                        semaphore.release()
+
                         time.sleep(float(POLLINTERVAL) / (len(sensors) + len(switches)))
 
 
